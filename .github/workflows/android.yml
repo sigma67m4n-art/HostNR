@@ -1,0 +1,104 @@
+name: Android CI
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Rust core tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88.0
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Resolve dependencies
+        run: |
+          if [ ! -f Cargo.lock ]; then
+            cargo generate-lockfile
+          fi
+      - name: Test parser, DNS, packet handling, and storage
+        run: cargo test --locked -p hostnr-core
+      - name: Lint Rust core
+        run: cargo clippy --locked -p hostnr-core --all-targets
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hostnr-dependency-lock
+          path: Cargo.lock
+          retention-days: 30
+
+  apk:
+    name: Build HostNR APK
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: hostnr-dependency-lock
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - uses: dtolnay/rust-toolchain@1.88.0
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: android-ndk-28
+      - name: Install Android SDK and NDK
+        run: |
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;28.0.13004108"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.0.13004108" >> "$GITHUB_ENV"
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --version 3.5.4 --locked
+      - name: Build native Rust libraries
+        env:
+          RUSTFLAGS: -C link-arg=-Wl,-z,max-page-size=16384
+        run: |
+          cargo ndk --platform 26 -t arm64-v8a -t armeabi-v7a -t x86_64 -o android/app/src/main/jniLibs build --locked --release -p hostnr
+      - name: Check Android Rust integration
+        run: cargo ndk --platform 26 -t arm64-v8a clippy --locked -p hostnr
+      - name: Build and lint Android package
+        run: gradle --no-daemon assembleDebug lintDebug
+      - name: Collect APK
+        run: |
+          mkdir -p artifacts
+          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/HostNR.apk
+          cp Cargo.lock artifacts/Cargo.lock
+          sha256sum artifacts/HostNR.apk > artifacts/HostNR.apk.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HostNR-apk
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-lint
+          path: android/app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore

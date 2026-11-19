@@ -1,0 +1,11 @@
+# HostNR demo. example.com / example.org are reserved for documentation.
+# Exact domain:
+127.0.0.1 example.org
+::1 example.org
+
+# Domain and every subdomain (Virtual Hosts-compatible):
+0.0.0.0 .ads.example.com
+:: .ads.example.com
+
+# Subdomains only, not dev.example.com itself:
+127.0.0.1 *.dev.example.com

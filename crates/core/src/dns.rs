@@ -90,7 +90,7 @@ mod tests {
     }
     #[test]
     fn ipv4_ipv6_nodata_and_passthrough() {
-        let h = Hosts::parse("127.0.0.1 .example.com\n::1 example.com").unwrap();
+        let h = Hosts::parse("127.0.0.1 .example.com\n127.0.0.1 example.com\n::1 example.com").unwrap();
         let q = query("example.com", 1);
         let a = answer(&h, &q).unwrap();
         assert_eq!(&a[a.len()-4..], &[127, 0, 0, 1]);
@@ -99,6 +99,16 @@ mod tests {
         assert_eq!(answer(&h, &query("a.example.com", 28)).unwrap()[7], 0);
         assert_eq!(answer(&h, &query("example.com", 65)).unwrap()[7], 0);
         assert!(answer(&h, &query("unmatched.test", 1)).is_none());
+    }
+    #[test]
+    fn exact_rule_does_not_fall_back_to_a_wildcard_address_family() {
+        let h = Hosts::parse("127.0.0.1 .example.com\n::1 example.com").unwrap();
+        let q = query("example.com", 1);
+        let a = answer(&h, &q).unwrap();
+        assert_eq!(a[7], 0);
+        assert_eq!(a.len(), q.len());
+        assert_eq!(answer(&h, &query("example.com", 28)).unwrap()[7], 1);
+        assert_eq!(answer(&h, &query("a.example.com", 1)).unwrap()[7], 1);
     }
     #[test]
     fn malformed_dns_never_panics() {

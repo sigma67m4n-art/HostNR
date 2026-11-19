@@ -33,6 +33,17 @@ public final class HostVpnService extends VpnService {
 		}
 		if (worker != null && worker.isAlive())
 			return START_NOT_STICKY;
+		/*
+		 * User-approved VPN apps qualify for systemExempted without alarm
+		 * permissions. Lint cannot model this runtime eligibility, so the
+		 * manifest suppresses ForegroundServicePermission for this service only.
+		 * https://developer.android.com/develop/background-work/services/fgs/service-types#system-exempted
+		 */
+		if (VpnService.prepare(this) != null) {
+			HostActivity.nativeMessage("VPN permission is missing");
+			stopSelf();
+			return START_NOT_STICKY;
+		}
 		try {
 			NotificationManager manager = getSystemService(NotificationManager.class);
 			manager.createNotificationChannel(new NotificationChannel(
